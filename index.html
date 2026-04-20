@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess Game</title>
+
+  <style>
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 64px);
+      grid-template-rows: repeat(8, 64px);
+    }
+
+    .sq { width: 64px; height: 64px; }
+    .light { background: #F0D9B5; }
+    .dark  { background: #B58863; }
+
+    #file-labels {
+      display: flex;
+      margin-left: 24px;
+    }
+
+    /* ✅ NEW — wraps rank labels + board side by side */
+    #board-wrapper {
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+    }
+
+    /* ✅ NEW — the column of numbers on the left */
+    #rank-labels {
+      display: flex;
+      flex-direction: column;
+      width: 24px;
+    }
+
+    #rank-labels span {
+      height: 64px;
+      line-height: 64px;
+      text-align: center;
+      font-size: 13px;
+      color: #666;
+    }
+  </style>
+
+</head>
+<body>
+
+  <!-- ✅ UPDATED — board is now wrapped with rank labels beside it -->
+  <div id="board-wrapper">
+    <div id="rank-labels"></div>
+    <div id="board"></div>
+  </div>
+
+  <div id="file-labels"></div>
+
+  <script>
+    const board = document.getElementById('board');
+
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const sq = document.createElement('div');
+        sq.className = 'sq ' + ((row + col) % 2 === 0 ? 'light' : 'dark');
+        board.appendChild(sq);
+      }
+    }
+
+    // File labels: a - h
+    const files = ['a','b','c','d','e','f','g','h'];
+    const fileBar = document.getElementById('file-labels');
+    files.forEach(f => {
+      const label = document.createElement('span');
+      label.textContent = f;
+      label.style.width = '64px';
+      label.style.textAlign = 'center';
+      label.style.display = 'inline-block';
+      fileBar.appendChild(label);
+    });
+
+    // ✅ NEW — Rank labels: 8 down to 1
+    const ranks = ['8','7','6','5','4','3','2','1'];
+    const rankBar = document.getElementById('rank-labels');
+    ranks.forEach(r => {
+      const label = document.createElement('span');
+      label.textContent = r;
+      rankBar.appendChild(label);
+    });
+  </script>
+
+</body>
+</html>
