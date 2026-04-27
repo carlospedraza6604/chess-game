@@ -12,23 +12,33 @@
       grid-template-rows: repeat(8, 64px);
     }
 
-    .sq { width: 64px; height: 64px; }
+    .sq {
+      width: 64px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      cursor: pointer;
+    }
+
     .light { background: #F0D9B5; }
     .dark  { background: #B58863; }
+
+    /* CHESS-03 — selected piece highlight */
+    .selected { background: #7fc97f !important; }
 
     #file-labels {
       display: flex;
       margin-left: 24px;
     }
 
-    /* ✅ NEW — wraps rank labels + board side by side */
     #board-wrapper {
       display: flex;
       flex-direction: row;
       align-items: stretch;
     }
 
-    /* ✅ NEW — the column of numbers on the left */
     #rank-labels {
       display: flex;
       flex-direction: column;
@@ -42,32 +52,138 @@
       font-size: 13px;
       color: #666;
     }
+
+    #turn-indicator {
+      margin-top: 12px;
+      font-size: 15px;
+      font-family: Georgia, serif;
+      color: #333;
+    }
+
+    /* shows a small status message when a piece is selected or deselected */
+    #selection-status {
+      margin-top: 6px;
+      font-size: 13px;
+      color: #666;
+      font-family: Georgia, serif;
+      min-height: 20px;
+    }
   </style>
 
 </head>
 <body>
 
-  <!-- ✅ UPDATED — board is now wrapped with rank labels beside it -->
   <div id="board-wrapper">
     <div id="rank-labels"></div>
     <div id="board"></div>
   </div>
 
   <div id="file-labels"></div>
+  <div id="turn-indicator">Turn: <strong id="turn-text">White</strong></div>
+  <div id="selection-status"></div>
 
   <script>
-    const board = document.getElementById('board');
 
-    for (let row = 0; row < 8; row++) {
-      for (let col = 0; col < 8; col++) {
-        const sq = document.createElement('div');
-        sq.className = 'sq ' + ((row + col) % 2 === 0 ? 'light' : 'dark');
-        board.appendChild(sq);
+    const startingPieces = [
+      'bR','bN','bB','bQ','bK','bB','bN','bR',
+      'bP','bP','bP','bP','bP','bP','bP','bP',
+      null,null,null,null,null,null,null,null,
+      null,null,null,null,null,null,null,null,
+      null,null,null,null,null,null,null,null,
+      null,null,null,null,null,null,null,null,
+      'wP','wP','wP','wP','wP','wP','wP','wP',
+      'wR','wN','wB','wQ','wK','wB','wN','wR',
+    ];
+
+    const pieceGlyphs = {
+      wK:'♔', wQ:'♕', wR:'♖', wB:'♗', wN:'♘', wP:'♙',
+      bK:'♚', bQ:'♛', bR:'♜', bB:'♝', bN:'♞', bP:'♟'
+    };
+
+    const pieceNames = {
+      K:'King', Q:'Queen', R:'Rook', B:'Bishop', N:'Knight', P:'Pawn'
+    };
+
+    const files = ['a','b','c','d','e','f','g','h'];
+    const ranks = ['8','7','6','5','4','3','2','1'];
+
+    let currentTurn = 'w';
+    let selectedIndex = null;
+    let boardState = [...startingPieces];
+
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('selection-status');
+
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+          const index = row * 8 + col;
+          const sq = document.createElement('div');
+          const isLight = (row + col) % 2 === 0;
+          sq.className = 'sq ' + (isLight ? 'light' : 'dark');
+          if (index === selectedIndex) sq.classList.add('selected');
+          const piece = boardState[index];
+          if (piece) sq.textContent = pieceGlyphs[piece];
+          sq.addEventListener('click', () => handleClick(index));
+          boardEl.appendChild(sq);
+        }
       }
     }
 
-    // File labels: a - h
-    const files = ['a','b','c','d','e','f','g','h'];
+    // converts a board index to square name like "e2"
+    function indexToSquare(index) {
+      const col = index % 8;
+      const row = Math.floor(index / 8);
+      return files[col] + ranks[row];
+    }
+
+    function handleClick(index) {
+      const piece = boardState[index];
+      const pieceColor = piece ? piece[0] : null;
+      const pieceType  = piece ? piece[1] : null;
+
+      // ── CHESS-03: SELECT A PIECE ──────────────────────────────────
+      // Case 1: Nothing selected — try to select this square
+      if (selectedIndex === null) {
+        if (piece && pieceColor === currentTurn) {
+          // Valid piece belonging to current player — select it
+          selectedIndex = index;
+          statusEl.textContent =
+            pieceNames[pieceType] + ' selected on ' + indexToSquare(index);
+        } else if (piece) {
+          // Opponent's piece — can't select it
+          statusEl.textContent = "That's not your piece.";
+        } else {
+          // Empty square — nothing to select
+          statusEl.textContent = '';
+        }
+
+      // ── CHESS-18: DESELECT A PIECE ────────────────────────────────
+      // Case 2: Same square clicked again — deselect
+      } else if (selectedIndex === index) {
+        selectedIndex = null;
+        statusEl.textContent = 'Piece deselected.';
+
+      // Case 3: Different square clicked while something is selected
+      } else {
+        if (piece && pieceColor === currentTurn) {
+          // Another one of your own pieces — switch selection to it
+          selectedIndex = index;
+          statusEl.textContent =
+            pieceNames[pieceType] + ' selected on ' + indexToSquare(index);
+        } else {
+          // Empty square or opponent's piece — deselect
+          // (move logic will be added here in the next step)
+          selectedIndex = null;
+          statusEl.textContent = '';
+        }
+      }
+
+      renderBoard();
+    }
+
+    // File labels
     const fileBar = document.getElementById('file-labels');
     files.forEach(f => {
       const label = document.createElement('span');
@@ -78,14 +194,17 @@
       fileBar.appendChild(label);
     });
 
-    // ✅ NEW — Rank labels: 8 down to 1
-    const ranks = ['8','7','6','5','4','3','2','1'];
+    // Rank labels
     const rankBar = document.getElementById('rank-labels');
     ranks.forEach(r => {
       const label = document.createElement('span');
       label.textContent = r;
       rankBar.appendChild(label);
     });
+
+    document.getElementById('turn-text').textContent = 'White';
+    renderBoard();
+
   </script>
 
 </body>
