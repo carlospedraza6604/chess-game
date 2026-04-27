@@ -20,13 +20,39 @@
       justify-content: center;
       font-size: 40px;
       cursor: pointer;
+      position: relative;
     }
 
     .light { background: #F0D9B5; }
     .dark  { background: #B58863; }
 
-    /* CHESS-03 — selected piece highlight */
+    /* CHESS-03 — selected piece */
     .selected { background: #7fc97f !important; }
+
+    /* CHESS-04 — legal move dot on empty square */
+    .legal-move::after {
+      content: '';
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.2);
+      position: absolute;
+      pointer-events: none;
+    }
+
+    /* CHESS-04 — legal capture ring on occupied square */
+    .legal-capture::after {
+      content: '';
+      width: 60px;
+      height: 60px;
+      border-radius: 0;
+      border: 4px solid rgba(0, 0, 0, 0.2);
+      position: absolute;
+      pointer-events: none;
+    }
+
+    /* highlight the last move made */
+    .last-move { background: #CDD16F !important; }
 
     #file-labels {
       display: flex;
@@ -60,7 +86,6 @@
       color: #333;
     }
 
-    /* shows a small status message when a piece is selected or deselected */
     #selection-status {
       margin-top: 6px;
       font-size: 13px;
@@ -107,83 +132,231 @@
     const files = ['a','b','c','d','e','f','g','h'];
     const ranks = ['8','7','6','5','4','3','2','1'];
 
-    let currentTurn = 'w';
+    let currentTurn   = 'w';
     let selectedIndex = null;
-    let boardState = [...startingPieces];
+    let legalMoves    = [];       // list of legal destination indices for selected piece
+    let lastMove      = [];       // [fromIndex, toIndex] of the most recent move
+    let boardState    = [...startingPieces];
 
-    const boardEl = document.getElementById('board');
+    const boardEl  = document.getElementById('board');
     const statusEl = document.getElementById('selection-status');
+
+    // ── RENDER ────────────────────────────────────────────────────────
 
     function renderBoard() {
       boardEl.innerHTML = '';
       for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 8; col++) {
           const index = row * 8 + col;
-          const sq = document.createElement('div');
+          const sq    = document.createElement('div');
           const isLight = (row + col) % 2 === 0;
+
           sq.className = 'sq ' + (isLight ? 'light' : 'dark');
-          if (index === selectedIndex) sq.classList.add('selected');
+
+          if (index === selectedIndex)      sq.classList.add('selected');
+          if (lastMove.includes(index))     sq.classList.add('last-move');
+
+          // CHESS-04 — show legal move dots or capture rings
+          if (legalMoves.includes(index)) {
+            if (boardState[index]) {
+              sq.classList.add('legal-capture'); // ring around capturable piece
+            } else {
+              sq.classList.add('legal-move');    // dot on empty square
+            }
+          }
+
           const piece = boardState[index];
           if (piece) sq.textContent = pieceGlyphs[piece];
+
           sq.addEventListener('click', () => handleClick(index));
           boardEl.appendChild(sq);
         }
       }
     }
 
-    // converts a board index to square name like "e2"
     function indexToSquare(index) {
-      const col = index % 8;
-      const row = Math.floor(index / 8);
-      return files[col] + ranks[row];
+      return files[index % 8] + ranks[Math.floor(index / 8)];
     }
 
-    function handleClick(index) {
-      const piece = boardState[index];
-      const pieceColor = piece ? piece[0] : null;
-      const pieceType  = piece ? piece[1] : null;
+    // ── CHESS-04: LEGAL MOVE GENERATION ──────────────────────────────
 
-      // ── CHESS-03: SELECT A PIECE ──────────────────────────────────
-      // Case 1: Nothing selected — try to select this square
+    function getPieceColor(piece) { return piece ? piece[0] : null; }
+    function getPieceType(piece)  { return piece ? piece[1] : null; }
+
+    // Returns all squares a piece can move to (does not yet filter for check)
+    function getRawMoves(index, board) {
+      const piece = board[index];
+      if (!piece) return [];
+
+      const color = getPieceColor(piece);
+      const type  = getPieceType(piece);
+      const row   = Math.floor(index / 8);
+      const col   = index % 8;
+      const moves = [];
+
+      // helper: add square if in bounds and not blocked by own piece
+      function tryAdd(r, c) {
+        if (r < 0 || r > 7 || c < 0 || c > 7) return;
+        const target = r * 8 + c;
+        if (getPieceColor(board[target]) !== color) moves.push(target);
+      }
+
+      // helper: slide in a direction until hitting something
+      function slide(dr, dc) {
+        let r = row + dr;
+        let c = col + dc;
+        while (r >= 0 && r <= 7 && c >= 0 && c <= 7) {
+          const target = r * 8 + c;
+          if (board[target]) {
+            if (getPieceColor(board[target]) !== color) moves.push(target);
+            break; // blocked — stop sliding
+          }
+          moves.push(target);
+          r += dr;
+          c += dc;
+        }
+      }
+
+      if (type === 'P') {
+        const dir      = color === 'w' ? -1 : 1;   // white moves up, black moves down
+        const startRow = color === 'w' ? 6 : 1;
+
+        // one square forward
+        const fwd = (row + dir) * 8 + col;
+        if (!board[fwd]) {
+          moves.push(fwd);
+          // two squares forward from starting row
+          const fwd2 = (row + dir * 2) * 8 + col;
+          if (row === startRow && !board[fwd2]) moves.push(fwd2);
+        }
+
+        // diagonal captures
+        for (const dc of [-1, 1]) {
+          const c2 = col + dc;
+          const r2 = row + dir;
+          if (c2 < 0 || c2 > 7 || r2 < 0 || r2 > 7) continue;
+          const target = r2 * 8 + c2;
+          if (board[target] && getPieceColor(board[target]) !== color) {
+            moves.push(target);
+          }
+        }
+      }
+
+      if (type === 'N') {
+        for (const [dr, dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+          tryAdd(row + dr, col + dc);
+        }
+      }
+
+      if (type === 'B' || type === 'Q') {
+        for (const [dr, dc] of [[-1,-1],[-1,1],[1,-1],[1,1]]) slide(dr, dc);
+      }
+
+      if (type === 'R' || type === 'Q') {
+        for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) slide(dr, dc);
+      }
+
+      if (type === 'K') {
+        for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
+          tryAdd(row + dr, col + dc);
+        }
+      }
+
+      return moves;
+    }
+
+    // Filter out moves that would leave own king in check
+    function getLegalMoves(index, board, color) {
+      const raw = getRawMoves(index, board);
+      return raw.filter(to => {
+        const testBoard = [...board];
+        testBoard[to]    = testBoard[index];
+        testBoard[index] = null;
+        return !isKingInCheck(color, testBoard);
+      });
+    }
+
+    // Check if the given color's king is currently in check
+    function isKingInCheck(color, board) {
+      const kingIndex = board.indexOf(color + 'K');
+      const opponent  = color === 'w' ? 'b' : 'w';
+      for (let i = 0; i < 64; i++) {
+        if (getPieceColor(board[i]) === opponent) {
+          if (getRawMoves(i, board).includes(kingIndex)) return true;
+        }
+      }
+      return false;
+    }
+
+    // ── CHESS-03 / CHESS-05 / CHESS-06: CLICK HANDLER ─────────────────
+
+    function handleClick(index) {
+      const piece      = boardState[index];
+      const pieceColor = getPieceColor(piece);
+      const pieceType  = getPieceType(piece);
+
+      // CHESS-03 — SELECT
       if (selectedIndex === null) {
         if (piece && pieceColor === currentTurn) {
-          // Valid piece belonging to current player — select it
           selectedIndex = index;
-          statusEl.textContent =
-            pieceNames[pieceType] + ' selected on ' + indexToSquare(index);
+          legalMoves    = getLegalMoves(index, boardState, currentTurn);
+          statusEl.textContent = pieceNames[pieceType] + ' selected on ' + indexToSquare(index);
         } else if (piece) {
-          // Opponent's piece — can't select it
-          statusEl.textContent = "That's not your piece.";
+          statusEl.textContent = "It's " + (currentTurn === 'w' ? 'White' : 'Black') + "'s turn.";
         } else {
-          // Empty square — nothing to select
           statusEl.textContent = '';
         }
 
-      // ── CHESS-18: DESELECT A PIECE ────────────────────────────────
-      // Case 2: Same square clicked again — deselect
+      // CHESS-18 — DESELECT: same square clicked again
       } else if (selectedIndex === index) {
         selectedIndex = null;
+        legalMoves    = [];
         statusEl.textContent = 'Piece deselected.';
 
-      // Case 3: Different square clicked while something is selected
+      // CHESS-05 — MOVE A PIECE: clicking a legal destination
+      } else if (legalMoves.includes(index)) {
+        movePiece(selectedIndex, index);
+
+      // Switch selection to another own piece
+      } else if (piece && pieceColor === currentTurn) {
+        selectedIndex = index;
+        legalMoves    = getLegalMoves(index, boardState, currentTurn);
+        statusEl.textContent = pieceNames[pieceType] + ' selected on ' + indexToSquare(index);
+
+      // Clicked an invalid square — deselect
       } else {
-        if (piece && pieceColor === currentTurn) {
-          // Another one of your own pieces — switch selection to it
-          selectedIndex = index;
-          statusEl.textContent =
-            pieceNames[pieceType] + ' selected on ' + indexToSquare(index);
-        } else {
-          // Empty square or opponent's piece — deselect
-          // (move logic will be added here in the next step)
-          selectedIndex = null;
-          statusEl.textContent = '';
-        }
+        selectedIndex = null;
+        legalMoves    = [];
+        statusEl.textContent = '';
       }
 
       renderBoard();
     }
 
-    // File labels
+    // ── CHESS-05: MOVE A PIECE ────────────────────────────────────────
+
+    function movePiece(from, to) {
+      boardState[to]   = boardState[from];
+      boardState[from] = null;
+      lastMove         = [from, to];
+
+      // CHESS-06 — ENFORCE TURN ORDER: flip the turn after every move
+      currentTurn = currentTurn === 'w' ? 'b' : 'w';
+
+      selectedIndex = null;
+      legalMoves    = [];
+
+      updateTurnIndicator();
+      statusEl.textContent = '';
+    }
+
+    function updateTurnIndicator() {
+      document.getElementById('turn-text').textContent =
+        currentTurn === 'w' ? 'White' : 'Black';
+    }
+
+    // ── LABELS ────────────────────────────────────────────────────────
+
     const fileBar = document.getElementById('file-labels');
     files.forEach(f => {
       const label = document.createElement('span');
@@ -194,7 +367,6 @@
       fileBar.appendChild(label);
     });
 
-    // Rank labels
     const rankBar = document.getElementById('rank-labels');
     ranks.forEach(r => {
       const label = document.createElement('span');
@@ -202,8 +374,8 @@
       rankBar.appendChild(label);
     });
 
-    document.getElementById('turn-text').textContent = 'White';
     renderBoard();
+    updateTurnIndicator();
 
   </script>
 
